@@ -1,6 +1,7 @@
 ﻿using AngleSharp;
 using AngleSharp.Html.Dom;
 using CsvHelper;
+using OpenQA.Selenium.Chrome;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -18,7 +19,51 @@ namespace Crawler
 
             var context = BrowsingContext.New(config);
 
-            await CralwerCartaCapital(context);
+            await CralwerCulturaNegra(context);
+            //await CralwerCartaCapital(context);
+            //await CrawlerJogorama(context);
+        }
+
+        private static async Task CralwerCulturaNegra(IBrowsingContext context)
+        {
+            var allResources = new List<Resource>();
+            using var driver = new ChromeDriver();
+            var driverOptions = driver.Manage();
+            //(driverOptions as ChromeOptions).enab
+            driverOptions.Window.Maximize();
+            driverOptions.Timeouts().ImplicitWait = TimeSpan.FromSeconds(20);
+
+            driver.Navigate().GoToUrl("https://caraeculturanegra.blogspot.com/");
+
+            Console.Clear();
+
+            for (var i = 0; i < 2; i++)
+            {
+                var webElement = driver.FindElementsByCssSelector(".blog-pager .displaypageNum:not(.lastpage)").Last();
+                var page = await context.OpenAsync(r => r.Content(driver.PageSource)).ConfigureAwait(false);
+
+                var resources = page.QuerySelectorAll("h2.post-title.entry-title a").Cast<IHtmlAnchorElement>()
+                        .Select(a => new Resource(a.TextContent.Trim(), a.Href.Trim()))
+                        .ToArray();
+
+                allResources.AddRange(resources);
+
+                webElement.Click();
+                await Task.Delay(5000);
+            }
+            driver.Quit();
+
+            foreach (var element in allResources)
+            {
+                var newPage = await context.OpenAsync(element.Url);
+                if (newPage.StatusCode != System.Net.HttpStatusCode.OK)
+                    continue;
+
+                var child = newPage.QuerySelector(".post-body.entry-content");
+                element.ContentParts.Add(child.TextContent);
+            }
+
+            SerializeToCsv(allResources);
         }
 
         private static async Task CralwerCartaCapital(IBrowsingContext context)
@@ -30,7 +75,7 @@ namespace Crawler
             foreach (var pageDocument in pages)
             {
                 var elements = pageDocument.QuerySelectorAll(".index-post-inner .tl-home-post-header h2 a").Cast<IHtmlAnchorElement>()
-                    .Select(a => new Resource(a.TextContent, a.Href))
+                    .Select(a => new Resource(a.TextContent.Trim(), a.Href.Trim()))
                     .ToArray();
 
                 allResources.AddRange(elements);
