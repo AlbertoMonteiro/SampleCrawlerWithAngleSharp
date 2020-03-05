@@ -1,9 +1,13 @@
 ﻿using AngleSharp;
 using AngleSharp.Html.Dom;
 using CsvHelper;
+using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
+using OpenQA.Selenium.Remote;
+using OpenQA.Selenium.Support.Events;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -19,19 +23,74 @@ namespace Crawler
 
             var context = BrowsingContext.New(config);
 
-            await CralwerCulturaNegra(context);
+            await CralwerTwitter(context);
+            //await CralwerCulturaNegra(context);
             //await CralwerCartaCapital(context);
             //await CrawlerJogorama(context);
+        }
+
+        private static async Task CralwerTwitter(IBrowsingContext context)
+        {
+            var allResources = new List<Resource>();
+            var options = new ChromeOptions();
+            //options.AddArguments("--disable-popup-blocking");
+            options.AddArguments("--headless");
+            options.AddArguments("--window-size=1920x1080");
+            using var driver = new ChromeDriver(options);
+            var driverOptions = driver.Manage();
+            driverOptions.Timeouts().ImplicitWait = TimeSpan.FromSeconds(10);
+            //
+
+            driver.Navigate().GoToUrl("https://twitter.com/search?l=pt&src=typd&lang=pt&f=tweets&vertical=default&q=Jogos");
+
+            Console.Clear();
+
+            allResources.AddRange(driver.FindElementsByCssSelector("div.css-1dbjc4n article")
+                .Select(x => new Resource("", x.FindElement(By.CssSelector("div > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div > div:nth-child(1) > a")).GetAttribute("href")) { ContentParts = { x.FindElement(By.CssSelector("div > div:nth-child(2) > div:nth-child(2) > div:nth-child(2)")).Text } }));
+
+            driver.ExecuteScript("document.value_tweets = []");
+            driver.ExecuteScript(@"
+document.querySelector('div.css-1dbjc4n')
+    .addEventListener('DOMNodeInserted', a => {
+    let element = a.target.querySelector('article > div > div:nth-child(2) > div:nth-child(2) > div:nth-child(2)');
+    if(element != null)
+        document.value_tweets.push({ text: element.textContent, link: a.target.querySelector('article a > time').closest('a').href })
+}, false);");
+
+            for (var i = 0; i < 5; i++)
+            {
+                Console.WriteLine("Fazendo scroll");
+                driver.ExecuteScript("window.scrollTo(0, document.body.scrollHeight);");
+                await Task.Delay(5000);
+
+                if (driver.ExecuteScript("return document.value_tweets") is IReadOnlyCollection<object> objs)
+                    allResources.AddRange(objs.Cast<IDictionary<string, object>>().Select(x => new Resource("", x["link"].ToString()) { ContentParts = { x["text"].ToString() } }));
+            }
+            driver.Quit();
+
+            var distinctValues = allResources.Distinct(new ResourceComparer()).ToList();
+            SerializeToCsv(distinctValues);
+        }
+
+        public class ResourceComparer : IEqualityComparer<Resource>
+        {
+            public bool Equals([AllowNull] Resource x, [AllowNull] Resource y)
+                => x?.SanitizedContent.Equals(y?.SanitizedContent) == true;
+            public int GetHashCode([DisallowNull] Resource obj)
+                => obj.SanitizedContent.GetHashCode();
         }
 
         private static async Task CralwerCulturaNegra(IBrowsingContext context)
         {
             var allResources = new List<Resource>();
-            using var driver = new ChromeDriver();
+            var options = new ChromeOptions();
+            options.AddArguments("--disable-popup-blocking");
+            options.AddArguments("--headless");
+            using var driver = new ChromeDriver(options);
             var driverOptions = driver.Manage();
-            //(driverOptions as ChromeOptions).enab
             driverOptions.Window.Maximize();
             driverOptions.Timeouts().ImplicitWait = TimeSpan.FromSeconds(20);
+            //driver.ExecuteScript("window.scrollTo(0, document.body.scrollHeight);");
 
             driver.Navigate().GoToUrl("https://caraeculturanegra.blogspot.com/");
 
